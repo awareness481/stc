@@ -1,5 +1,5 @@
 //! Handles new expressions and call expressions.
-use std::{borrow::Cow, collections::HashMap};
+use std::{borrow::Cow, collections::HashMap, panic::Location};
 
 use fxhash::FxHashMap;
 use itertools::Itertools;
@@ -271,6 +271,8 @@ pub(super) enum ExtractKind {
 }
 
 impl Analyzer<'_, '_> {
+    // dbg!(&type_params, &type_args);
+
     /// Calculates the return type of a new /call expression.
     ///
     /// This method check arguments
@@ -3441,12 +3443,14 @@ impl Analyzer<'_, '_> {
         self.add_type_fact(&var_name, new_ty.clone(), new_ty);
     }
 
+    #[track_caller]
     pub(crate) fn validate_type_args_count(
         &mut self,
         span: Span,
         type_params: Option<&[TypeParam]>,
         type_args: Option<&TypeParamInstantiation>,
     ) -> VResult<()> {
+        dbg!(Location::caller());
         if let Some(type_params) = type_params {
             if let Some(type_args) = type_args {
                 // TODO(kdy1): Handle defaults of the type parameter (Change to range)
@@ -3460,8 +3464,33 @@ impl Analyzer<'_, '_> {
                     .into());
                 }
             }
-        }
+        } else {
+            // self.expand_type_params_using_scope(ty)
+            // dbg!(&self.expand(span, ty, opts));
+            dbg!(&self.scope.parent().unwrap());
 
+            if let Some(args) = type_args {
+                if let Some(Type::Class(class)) = &self.scope.this {
+                    if let Some(box params) = &class.def.type_params {
+                        if params.params.len() == args.params.len() {
+                            return Ok(());
+                        }
+                    }
+                }
+                return Err(ErrorKind::TypeParameterCountMismatch {
+                    span: Span {
+                        lo: args.params[0].span().lo,
+                        hi: args.params.last().span().hi,
+                        ctxt: SyntaxContext::empty(),
+                    },
+                    max: 0,
+                    min: 0,
+                    actual: args.params.len(),
+                }
+                .into());
+            }
+        }
+        // dbg!(&type_params);
         Ok(())
     }
 
